@@ -1,0 +1,455 @@
+.<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10191b">
+  <title>Murmuration</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #10191b;
+      --panel: #1b2829;
+      --line: #354648;
+      --text: #edf3ee;
+      --muted: #a8bab4;
+      --accent: #c1e77d;
+      --warm: #f0b879;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, sans-serif; }
+    main { width: min(1100px, 100%); margin: 0 auto; padding: 16px; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+    h1 { margin: 0; color: var(--accent); font-size: 1.3rem; }
+    .readout { display: flex; gap: 10px; color: var(--muted); font-size: .8rem; }
+    .readout strong { color: var(--text); }
+    .panel { overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #080e10; }
+    #cv { display: block; width: 100%; height: auto; aspect-ratio: 5 / 3; touch-action: none; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; }
+    button, select { min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; padding: 6px 9px; }
+    button { cursor: pointer; }
+    button:active { background: #2a3b3b; }
+    .controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+    .control { min-width: 0; }
+    .control label, .control .label { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 3px; color: var(--muted); font-size: .82rem; }
+    output { color: var(--text); font-variant-numeric: tabular-nums; }
+    input[type="range"] { width: 100%; height: 24px; margin: 0; accent-color: var(--accent); }
+    select { width: 100%; padding: 4px 7px; }
+    .check { display: flex; align-items: center; gap: 6px; min-height: 32px; color: var(--text); font-size: .82rem; }
+    input[type="checkbox"] { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); }
+    .field-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+    body.fs { overflow: hidden; }
+    body.fs main { position: fixed; inset: 0; width: 100%; max-width: none; height: 100vh; height: 100dvh; padding: 0; }
+    body.fs header, body.fs .toolbar, body.fs .fs-settings { position: fixed; z-index: 4; left: 8px; right: auto; width: min(360px, 52vw); margin: 0; border: 1px solid var(--line); border-radius: 8px; background: rgba(16, 25, 27, .5); pointer-events: auto; }
+    body.fs header { top: max(8px, env(safe-area-inset-top)); padding: 6px 10px; }
+    body.fs h1 { font-size: 1rem; }
+    body.fs .toolbar { top: max(48px, calc(env(safe-area-inset-top) + 42px)); padding: 4px; gap: 5px; }
+    body.fs .toolbar button { min-height: 32px; padding: 4px 6px; font-size: .78rem; }
+    body.fs .fs-settings { top: max(104px, calc(env(safe-area-inset-top) + 96px)); bottom: max(8px, env(safe-area-inset-bottom)); max-height: none; overflow-y: auto; overscroll-behavior: contain; padding: 2px 9px; }
+    body.fs button, body.fs select { background-color: rgba(27, 40, 41, .5); }
+    body.fs .fs-settings .controls, body.fs .fs-settings .field-row { padding: 6px 0; border: 0; }
+    body.fs .panel { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 0; }
+    body.fs #cv { width: 100%; height: 100%; aspect-ratio: auto; }
+    body.fs.ui-hidden header, body.fs.ui-hidden .toolbar, body.fs.ui-hidden .fs-settings { display: none; }
+    .ok { color: var(--accent) !important; }
+    .err { color: var(--warm) !important; }
+    @media (max-width: 700px) {
+      main { padding: 10px; }
+      .controls, .field-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 10px; }
+      #cv { aspect-ratio: 4 / 3; }
+    }
+    @media (max-width: 500px) {
+      body.fs header, body.fs .toolbar, body.fs .fs-settings { width: min(340px, 78vw); }
+    }
+    @media (max-width: 380px) {
+      .controls, .field-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Murmuration</h1>
+      <div class="readout"><span id="hudStatus" class="ok">running</span><span><strong id="hudFps">0</strong> FPS</span></div>
+    </header>
+    <section class="panel" aria-label="Animatie">
+      <canvas id="cv"></canvas>
+    </section>
+    <nav class="toolbar" aria-label="Animatiebediening">
+      <button id="pauseBtn" type="button">Pauze</button>
+      <button id="pulseBtn" type="button">Impuls</button>
+      <button id="resetBtn" type="button">Herstart</button>
+      <button id="fsBtn" type="button">Volledig scherm</button>
+    </nav>
+    <div class="fs-settings">
+    <section class="controls" aria-label="Animatie-instellingen">
+      <div class="control"><label for="trail">Sporen <output id="trailVal"></output></label><input id="trail" type="range" min="0.02" max="1" step="0.01" value="0.20"></div>
+      <div class="control"><label for="zoom">In-/uitzoomen <output id="zoomVal"></output></label><input id="zoom" type="range" min="0.25" max="3" step="0.05" value="1"></div>
+      <div class="control"><label for="boids">Aantal boids <output id="boidsVal"></output></label><input id="boids" type="range" min="80" max="2400" step="40" value="600"></div>
+      <div class="control"><label for="maxSpeed">Maximumsnelheid <output id="maxSpeedVal"></output></label><input id="maxSpeed" type="range" min="0.5" max="5" step="0.1" value="2"></div>
+      <div class="control"><label for="viewR">Kijkafstand <output id="viewRVal"></output></label><input id="viewR" type="range" min="10" max="100" step="1" value="40"></div>
+      <div class="control"><label for="sep">Afstand houden <output id="sepVal"></output></label><input id="sep" type="range" min="0" max="3" step="0.05" value="1"></div>
+      <div class="control"><label for="ali">Uitlijning <output id="aliVal"></output></label><input id="ali" type="range" min="0" max="3" step="0.05" value="0.6"></div>
+      <div class="control"><label for="coh">Samenklonteren <output id="cohVal"></output></label><input id="coh" type="range" min="0" max="2" step="0.05" value="0.25"></div>
+      <div class="control"><label for="soft">Zachtheid <output id="softVal"></output></label><input id="soft" type="range" min="0" max="1" step="0.01" value="0"></div>
+      <div class="control"><label for="fStr">Aanraaksterkte <output id="fStrVal"></output></label><input id="fStr" type="range" min="0" max="4" step="0.05" value="1.4"></div>
+      <div class="control"><label for="fFall">Aanraakbereik <output id="fFallVal"></output></label><input id="fFall" type="range" min="20" max="300" step="5" value="140"></div>
+      <div class="control"><label for="fingerMode">Aanraking</label><select id="fingerMode"><option value="attract">Aantrekken</option><option value="repel">Afstoten</option></select></div>
+      <label class="check"><input id="wrapChk" type="checkbox" checked> Randen verbinden</label>
+    </section>
+    <section class="field-row" aria-label="Veldinstellingen">
+      <div class="control"><label for="fieldA">Veld A</label><select id="fieldA"><option>None</option><option>Hopf Swirl</option><option>Klein Loop</option><option>Trefoil Knot</option><option>Vortex</option><option>Spiraal</option><option>Ademhaling</option><option>Zadel</option><option>Golf</option><option>Dubbele vortex</option></select></div>
+      <div class="control"><label for="fieldB">Veld B</label><select id="fieldB"><option>None</option><option>Hopf Swirl</option><option>Klein Loop</option><option>Trefoil Knot</option><option>Vortex</option><option>Spiraal</option><option>Ademhaling</option><option>Zadel</option><option>Golf</option><option>Dubbele vortex</option></select></div>
+      <div class="control"><label for="fieldC">Veld C</label><select id="fieldC"><option>None</option><option>Hopf Swirl</option><option>Klein Loop</option><option>Trefoil Knot</option><option>Vortex</option><option>Spiraal</option><option>Ademhaling</option><option>Zadel</option><option>Golf</option><option>Dubbele vortex</option></select></div>
+      <div class="control"><label for="fieldD">Veld D</label><select id="fieldD"><option>None</option><option>Hopf Swirl</option><option>Klein Loop</option><option>Trefoil Knot</option><option>Vortex</option><option>Spiraal</option><option>Ademhaling</option><option>Zadel</option><option>Golf</option><option>Dubbele vortex</option></select></div>
+      <div class="control"><label for="blend">Veldmix A/B <output id="blendVal"></output></label><input id="blend" type="range" min="0" max="1" step="0.01" value="0"></div>
+      <div class="control"><label for="fStrength">Veldsterkte <output id="fStrengthVal"></output></label><input id="fStrength" type="range" min="0" max="3" step="0.05" value="0.9"></div>
+      <div class="control"><label for="fieldCStrength">Sterkte C <output id="fieldCStrengthVal"></output></label><input id="fieldCStrength" type="range" min="0" max="2" step="0.05" value="0.7"></div>
+      <div class="control"><label for="fieldDStrength">Sterkte D <output id="fieldDStrengthVal"></output></label><input id="fieldDStrength" type="range" min="0" max="2" step="0.05" value="0.7"></div>
+      <div class="control"><label for="autoMorphSpeed">Wisselsnelheid</label><input id="autoMorphSpeed" type="range" min="0.02" max="1" step="0.01" value="0.15"></div>
+      <label class="check"><input id="autoMorphChk" type="checkbox"> Automatisch mengen</label>
+    </section>
+    </div>
+  </main>
+  <script>
+  (() => {
+    const cv = document.getElementById('cv');
+    const ctx = cv.getContext('2d');
+    let W = 900, H = 600;
+    let paused = false;
+    const hudStatus = document.getElementById('hudStatus');
+    const hudFps = document.getElementById('hudFps');
+
+    const fsBtn = document.getElementById('fsBtn');
+    function isFS(){ return document.fullscreenElement || document.body.classList.contains('fs'); }
+    async function enterFS(){ document.body.classList.add('fs'); try{ if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); }catch(e){} fit(); }
+    async function exitFS(){ document.body.classList.remove('fs'); try{ if (document.fullscreenElement) await document.exitFullscreen(); }catch(e){} fit(); }
+    function toggleFS(){ isFS() ? exitFS() : enterFS(); }
+    if (fsBtn) fsBtn.addEventListener('click', toggleFS);
+    window.addEventListener('keydown', (e)=>{ if ((e.key||'').toLowerCase()==='f') toggleFS(); });
+    cv.addEventListener('dblclick', toggleFS);
+    let lastTap=0, pinchUsed=false; cv.addEventListener('touchend', (e)=>{ if(pinchUsed){ if(e.touches.length===0) pinchUsed=false; lastTap=0; return; } const now=Date.now(); if (now-lastTap<300){ toggleFS(); e.preventDefault(); } lastTap=now; }, {passive:false});
+    document.addEventListener('fullscreenchange', ()=>{ if (!document.fullscreenElement) document.body.classList.remove('fs'); fit(); });
+
+    const state = {
+      trail: 0.20, zoom: 1, n: 600, maxSpeed: 2.0, viewR: 40,
+      sep: 1.0, ali: 0.6, coh: 0.25, wrap: true, soft: 0.0,
+      fStr: 1.4, fFall: 140, fingerMode: 'attract',
+      fieldA: 'None', fieldB: 'None', fieldC: 'None', fieldD: 'None',
+      blend: 0.0, fStrength: 0.9, fieldCStrength: 0.7, fieldDStrength: 0.7,
+      autoMorph: false, autoMorphSpeed: 0.15,
+    };
+
+    const bindSlider = (id, key, fmt=(v)=>v) => {
+      const el = document.getElementById(id);
+      const lab = document.getElementById(id+'Val');
+      const set = v => {
+        state[key] = parseFloat(v);
+        if(lab) lab.textContent = (typeof fmt==='function' ? fmt(state[key]).toString() : state[key]);
+      };
+      set(el.value);
+      el.addEventListener('input', e => set(e.target.value));
+    };
+    bindSlider('trail','trail',v=>Number(v).toFixed(2));
+    bindSlider('boids','n',v=>v);
+    bindSlider('maxSpeed','maxSpeed',v=>Number(v).toFixed(2));
+    bindSlider('viewR','viewR');
+    bindSlider('sep','sep',v=>Number(v).toFixed(2));
+    bindSlider('ali','ali',v=>Number(v).toFixed(2));
+    bindSlider('coh','coh',v=>Number(v).toFixed(2));
+    bindSlider('soft','soft',v=>Number(v).toFixed(2));
+    bindSlider('fStr','fStr',v=>Number(v).toFixed(2));
+    bindSlider('fFall','fFall');
+    bindSlider('blend','blend',v=>Number(v).toFixed(2));
+    bindSlider('fStrength','fStrength',v=>Number(v).toFixed(2));
+    bindSlider('fieldCStrength','fieldCStrength',v=>Number(v).toFixed(2));
+    bindSlider('fieldDStrength','fieldDStrength',v=>Number(v).toFixed(2));
+
+    const wrapChk = document.getElementById('wrapChk'); wrapChk.addEventListener('change', ()=> state.wrap = wrapChk.checked);
+    const fingerMode = document.getElementById('fingerMode'); fingerMode.addEventListener('change', ()=> state.fingerMode = fingerMode.value);
+    const fieldA = document.getElementById('fieldA'); fieldA.addEventListener('change', ()=> state.fieldA = fieldA.value);
+    const fieldB = document.getElementById('fieldB'); fieldB.addEventListener('change', ()=> state.fieldB = fieldB.value);
+    const fieldC = document.getElementById('fieldC'); fieldC.addEventListener('change', ()=> state.fieldC = fieldC.value);
+    const fieldD = document.getElementById('fieldD'); fieldD.addEventListener('change', ()=> state.fieldD = fieldD.value);
+    const autoMorphChk = document.getElementById('autoMorphChk'); autoMorphChk.addEventListener('change', ()=> state.autoMorph = autoMorphChk.checked);
+    const autoMorphSpeed = document.getElementById('autoMorphSpeed'); autoMorphSpeed.addEventListener('input', ()=> state.autoMorphSpeed = parseFloat(autoMorphSpeed.value));
+
+    document.getElementById('resetBtn').addEventListener('click', reset);
+    document.getElementById('pulseBtn').addEventListener('click', ()=>{ const id=99999; const cx=worldWidth()*0.5, cy=worldHeight()*0.5; pointers.set(id,{id, x:cx, y:cy}); setTimeout(()=>pointers.delete(id),600); });
+    document.getElementById('pauseBtn').addEventListener('click', (e)=>{ paused = !paused; e.target.textContent = paused ? 'Verder' : 'Pauze'; setStatus(paused ? 'gepauzeerd' : 'actief', true); });
+
+    const clamp = (v,a,b)=> Math.max(a, Math.min(b, v));
+    const lerp = (a,b,t)=> a + (b-a)*t;
+    const smoothstep = (t)=>{ t = clamp(t,0,1); return t*t*(3-2*t); };
+    const norm = (x,y)=>{ const m=Math.hypot(x,y)||1; return [x/m, y/m]; };
+    const worldWidth = ()=> W / Math.min(state.zoom, 1);
+    const worldHeight = ()=> H / Math.min(state.zoom, 1);
+    function setZoom(value){
+      const nextZoom=clamp(value,0.25,3);
+      if(nextZoom===state.zoom) return;
+      const oldWidth=worldWidth(), oldHeight=worldHeight();
+      state.zoom=nextZoom;
+      const nextWidth=worldWidth(), nextHeight=worldHeight();
+      const scaleX=nextWidth/oldWidth, scaleY=nextHeight/oldHeight;
+      for(const flock of [boids,nextBoids]){
+        for(const boid of flock){
+          boid.x=nextWidth*0.5+(boid.x-oldWidth*0.5)*scaleX;
+          boid.y=nextHeight*0.5+(boid.y-oldHeight*0.5)*scaleY;
+        }
+      }
+      zoomSlider.value=state.zoom.toString();
+      zoomValue.textContent=`${state.zoom.toFixed(2)}x`;
+    }
+    const zoomSlider = document.getElementById('zoom');
+    const zoomValue = document.getElementById('zoomVal');
+    zoomValue.textContent=`${state.zoom.toFixed(2)}x`;
+    zoomSlider.addEventListener('input',()=>setZoom(parseFloat(zoomSlider.value)));
+
+    const FIELD_MAP = {
+      'None': (x,y,t)=>[0,0],
+      'Hopf Swirl': (x,y,t)=>{ const r=Math.hypot(x,y)+1e-6; const ang=Math.atan2(y,x); const w=0.6+0.9*Math.sin(0.7*t+3*r); const tx=-Math.sin(ang), ty=Math.cos(ang); const breathe=0.15*Math.sin(1.3*t+6*ang); return [ w*tx + breathe*(x/r), w*ty + breathe*(y/r) ]; },
+      'Klein Loop': (x,y,t)=>{ const a=0.25*Math.sin(0.6*t); const c=Math.cos(a), s=Math.sin(a); const ux=c*x - s*y, uy=s*x + c*y; const A=0.6; const r2=ux*ux + uy*uy; const dfx=4*r2*ux - 4*A*A*ux; const dfy=4*r2*uy + 4*A*A*uy; let tx=-dfy, ty=dfx; const sgn=Math.sign(Math.sin(t+3*r2))||1; tx*=sgn; ty*=sgn; const ax=-0.12*dfx, ay=-0.12*dfy; const m=Math.hypot(tx,ty)||1; return [ tx/m + ax, ty/m + ay ]; },
+      'Trefoil Knot': (x,y,t)=>{ const r=Math.hypot(x,y)+1e-6; const ang=Math.atan2(y,x); const c=0.55+0.05*Math.sin(0.8*t); const target=c*Math.cos(3*ang + 0.6*Math.sin(0.9*t)); const err=r-Math.abs(target); const ax=-0.35*err*Math.cos(ang), ay=-0.35*err*Math.sin(ang); const w=0.9+0.3*Math.sin(0.5*t); return [ ax - w*Math.sin(ang), ay + w*Math.cos(ang) ]; },
+      'Vortex': (x,y,t)=>{ const r=Math.hypot(x,y)+0.08; const pulse=0.75+0.25*Math.sin(1.2*t-r*4); return [-y/r*pulse, x/r*pulse]; },
+      'Spiraal': (x,y,t)=>{ const r=Math.hypot(x,y)+1e-6; const pulse=0.8+0.2*Math.sin(t-r*3); return [0.55*x/r-y/r*pulse, 0.55*y/r+x/r*pulse]; },
+      'Ademhaling': (x,y,t)=>{ const r=Math.hypot(x,y)+1e-6; const flow=Math.sin(2.2*t-7*r); return [x/r*flow, y/r*flow]; },
+      'Zadel': (x,y,t)=>[x*(0.8+0.2*Math.sin(t)), -y*(0.8+0.2*Math.sin(t))],
+      'Golf': (x,y,t)=>[Math.sin(5*y+1.4*t), Math.sin(5*x-1.1*t)],
+      'Dubbele vortex': (x,y,t)=>{ const dx1=x+0.48, dx2=x-0.48, r1=dx1*dx1+y*y+0.12, r2=dx2*dx2+y*y+0.12; const spin=0.65+0.2*Math.sin(t); return [(-y/r1+y/r2)*spin, (dx1/r1-dx2/r2)*spin]; },
+    };
+
+    const pointers = new Map();
+    const touchPoints = new Map();
+    let pinchDistance = 0, pinchZoom = state.zoom;
+    const updatePinchZoom = () => {
+      if (touchPoints.size !== 2) return;
+      const [first, second] = touchPoints.values();
+      const distance = Math.hypot(second.x-first.x, second.y-first.y);
+      if (pinchDistance > 0) setZoom(pinchZoom * distance / pinchDistance);
+    };
+    const toCanvas = (clientX, clientY)=>{
+      const rect=cv.getBoundingClientRect();
+      const x=(clientX-rect.left)*(cv.width/rect.width);
+      const y=(clientY-rect.top)*(cv.height/rect.height);
+      return { x:worldWidth()*0.5+(x-W*0.5)/state.zoom, y:worldHeight()*0.5+(y-H*0.5)/state.zoom };
+    };
+    let holdTimer = null, holdStart = null;
+    const cancelHold = () => { if (holdTimer !== null) window.clearTimeout(holdTimer); holdTimer = null; holdStart = null; };
+    cv.addEventListener('pointerdown', e=>{
+      cv.setPointerCapture(e.pointerId);
+      if (e.pointerType === 'touch'){
+        touchPoints.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        if(touchPoints.size===2){
+          cancelHold();
+          pinchUsed=true;
+          pointers.clear();
+          const [first,second]=touchPoints.values();
+          pinchDistance=Math.hypot(second.x-first.x,second.y-first.y);
+          pinchZoom=state.zoom;
+        }
+      }
+      const p=toCanvas(e.clientX,e.clientY);
+      if(touchPoints.size<2) pointers.set(e.pointerId,{id:e.pointerId,...p});
+      if (e.pointerType === 'touch' && touchPoints.size<2 && document.body.classList.contains('fs')){
+        holdStart = { id:e.pointerId, x:e.clientX, y:e.clientY };
+        holdTimer = window.setTimeout(()=>{
+          pointers.delete(e.pointerId);
+          document.body.classList.toggle('ui-hidden');
+          holdTimer = null;
+          holdStart = null;
+        },1000);
+      }
+    });
+    cv.addEventListener('pointermove', e=>{
+      if (holdStart && holdStart.id === e.pointerId && Math.hypot(e.clientX-holdStart.x,e.clientY-holdStart.y) > 12) cancelHold();
+      if(touchPoints.has(e.pointerId)){
+        touchPoints.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        if(touchPoints.size===2){ updatePinchZoom(); return; }
+      }
+      if(!pointers.has(e.pointerId)) return;
+      const p=toCanvas(e.clientX,e.clientY);
+      pointers.set(e.pointerId,{id:e.pointerId,...p});
+    });
+    const endPointer = e=>{
+      cancelHold();
+      pointers.delete(e.pointerId);
+      touchPoints.delete(e.pointerId);
+      if(touchPoints.size<2) pinchDistance=0;
+      if(touchPoints.size===1 && pinchUsed) pointers.clear();
+    };
+    window.addEventListener('pointerup', endPointer);
+    window.addEventListener('pointercancel', endPointer);
+
+    let boids = [], nextBoids = [];
+    let spatialGrid = [], gridColumns = 0, gridRows = 0;
+    function reset(){
+      boids = new Array(state.n).fill(0).map(()=>({ x:Math.random()*worldWidth(), y:Math.random()*worldHeight(), vx:(Math.random()*2-1), vy:(Math.random()*2-1) }));
+      nextBoids = boids.map(b=>({ x:b.x, y:b.y, vx:b.vx, vy:b.vy }));
+    }
+
+    function fit(){
+      const fs = document.body.classList.contains('fs');
+      if (fs){ W = window.innerWidth; H = window.innerHeight; }
+      else { const parent = document.querySelector('.panel'); W = Math.max(360, parent.clientWidth); H = Math.max(360, Math.floor(W*0.6)); }
+      cv.width = W; cv.height = H;
+    }
+    window.addEventListener('resize', fit); fit(); reset();
+
+    let last = performance.now(); let blendT = state.blend; let fpsEma=0, fpsAlpha=0.1, fpsTimer=0;
+
+    function ndc(x,y){ return [ (x/worldWidth())*2-1, (y/worldHeight())*2-1 ]; }
+    function setStatus(text, ok){ if(!hudStatus) return; hudStatus.textContent=text; hudStatus.classList.remove('ok','err'); hudStatus.classList.add(ok?'ok':'err'); }
+    function updateFps(dt){ const fps = 1/Math.max(1e-6, dt); fpsEma = fpsAlpha*fps + (1-fpsAlpha)*fpsEma; fpsTimer += dt; if (fpsTimer >= 0.25 && hudFps){ hudFps.textContent = Math.round(fpsEma).toString(); fpsTimer = 0; } }
+
+    function topologyForce(x,y,t){
+      const n = ndc(x,y);
+      const fA = FIELD_MAP[state.fieldA](n[0],n[1],t);
+      const fB = FIELD_MAP[state.fieldB](n[0],n[1],t+0.3);
+      const fC = FIELD_MAP[state.fieldC](n[0],n[1],t+0.6);
+      const fD = FIELD_MAP[state.fieldD](n[0],n[1],t+0.9);
+      const sT = smoothstep(blendT);
+      return [
+        (lerp(fA[0],fB[0],sT)*state.fStrength + fC[0]*state.fieldCStrength + fD[0]*state.fieldDStrength),
+        (lerp(fA[1],fB[1],sT)*state.fStrength + fC[1]*state.fieldCStrength + fD[1]*state.fieldDStrength),
+      ];
+    }
+
+    function step(now){
+      const dt = Math.min(0.05, (now-last)/1000); last = now; updateFps(dt);
+      if (boids.length !== state.n) reset();
+      if (state.autoMorph){ blendT += state.autoMorphSpeed*dt; if (blendT>=1) blendT=0; } else { blendT = state.blend; }
+
+      const vr2 = state.viewR*state.viewR; const ms = state.maxSpeed; const time = now/1000;
+      const worldW=worldWidth(), worldH=worldHeight();
+
+      if (!paused){
+        const cellSize = Math.max(state.viewR, 1);
+        const columns = Math.ceil(worldW / cellSize);
+        const rows = Math.ceil(worldH / cellSize);
+        if (columns !== gridColumns || rows !== gridRows){
+          spatialGrid = Array.from({ length: columns * rows }, () => []);
+          gridColumns = columns;
+          gridRows = rows;
+        } else {
+          for (const cell of spatialGrid) cell.length = 0;
+        }
+        for (let boidIndex=0; boidIndex<boids.length; boidIndex++){
+          const boid = boids[boidIndex];
+          const cellX = Math.min(columns - 1, Math.floor(boid.x / cellSize));
+          const cellY = Math.min(rows - 1, Math.floor(boid.y / cellSize));
+          spatialGrid[cellY * columns + cellX].push(boidIndex);
+        }
+
+        for (let boidIndex=0; boidIndex<boids.length; boidIndex++){
+          const boid = boids[boidIndex];
+          let sepX=0, sepY=0, sepN=0, aliX=0, aliY=0, aliN=0, cohX=0, cohY=0, cohN=0;
+          const cellX = Math.min(columns - 1, Math.floor(boid.x / cellSize));
+          const cellY = Math.min(rows - 1, Math.floor(boid.y / cellSize));
+          for (let rowOffset=-1; rowOffset<=1; rowOffset++){
+            let neighborY = cellY + rowOffset;
+            if (state.wrap) neighborY = (neighborY + rows) % rows;
+            else if (neighborY < 0 || neighborY >= rows) continue;
+            for (let columnOffset=-1; columnOffset<=1; columnOffset++){
+              let neighborX = cellX + columnOffset;
+              if (state.wrap) neighborX = (neighborX + columns) % columns;
+              else if (neighborX < 0 || neighborX >= columns) continue;
+              const neighbors = spatialGrid[neighborY * columns + neighborX];
+              for (const neighborIndex of neighbors){
+                if (boidIndex === neighborIndex) continue;
+                const other = boids[neighborIndex];
+                let dx = other.x - boid.x, dy = other.y - boid.y;
+                if (state.wrap){
+                  if (dx > worldW * 0.5) dx -= worldW;
+                  else if (dx < -worldW * 0.5) dx += worldW;
+                  if (dy > worldH * 0.5) dy -= worldH;
+                  else if (dy < -worldH * 0.5) dy += worldH;
+                }
+                const d2 = dx*dx + dy*dy;
+                if (d2 > vr2) continue;
+                const inv = 1 / (d2 + 1e-4);
+                sepX -= dx * inv; sepY -= dy * inv; sepN++;
+                aliX += other.vx; aliY += other.vy; aliN++;
+                cohX += (boid.x + dx); cohY += (boid.y + dy); cohN++;
+              }
+            }
+          }
+
+          let ax=0, ay=0;
+          if (sepN>0){ const n=norm(sepX,sepY); ax += state.sep*n[0]; ay += state.sep*n[1]; }
+          if (aliN>0){ const n=norm(aliX,aliY); ax += state.ali*n[0]; ay += state.ali*n[1]; }
+          if (cohN>0){ const cx=(cohX/cohN)-boid.x, cy=(cohY/cohN)-boid.y; const n=norm(cx,cy); ax += state.coh*n[0]; ay += state.coh*n[1]; }
+
+          pointers.forEach(p=>{
+            let dx = p.x - boid.x, dy = p.y - boid.y;
+            if (state.wrap){
+              if (dx > worldW * 0.5) dx -= worldW; else if (dx < -worldW * 0.5) dx += worldW;
+              if (dy > worldH * 0.5) dy -= worldH; else if (dy < -worldH * 0.5) dy += worldH;
+            }
+            const d = Math.hypot(dx,dy) + 1e-6;
+            if (d < state.fFall){
+              const fall = (1 - d/state.fFall);
+              const base = state.fStr * (0.4 + 0.6*fall) / (1 + 0.5*d/state.fFall);
+              const sgn = state.fingerMode === 'attract' ? 1 : -1;
+              ax += sgn * base * (dx/d); ay += sgn * base * (dy/d);
+            }
+          });
+
+          const tf = topologyForce(boid.x, boid.y, time);
+          ax += tf[0]; ay += tf[1];
+
+          let vx = boid.vx + ax * dt * 3.0;
+          let vy = boid.vy + ay * dt * 3.0;
+          const sp = Math.hypot(vx, vy) || 1;
+          if (sp > ms){ vx *= ms/sp; vy *= ms/sp; }
+          let x = boid.x + vx * dt * 60;
+          let y = boid.y + vy * dt * 60;
+          if (state.wrap){
+            if (x < 0) x += worldW; else if (x >= worldW) x -= worldW;
+            if (y < 0) y += worldH; else if (y >= worldH) y -= worldH;
+          } else {
+            x = clamp(x, 0, worldW); y = clamp(y, 0, worldH);
+          }
+          nextBoids[boidIndex].x = x;
+          nextBoids[boidIndex].y = y;
+          nextBoids[boidIndex].vx = vx;
+          nextBoids[boidIndex].vy = vy;
+        }
+        const previousBoids = boids;
+        boids = nextBoids;
+        nextBoids = previousBoids;
+      }
+
+      draw();
+      setStatus(paused ? 'gepauzeerd' : 'actief', true);
+      requestAnimationFrame(step);
+    }
+
+    function draw(){
+      const a = clamp(state.trail, 0, 1);
+      if (a >= 0.999) { ctx.clearRect(0, 0, W, H); }
+      else { ctx.fillStyle = `rgba(2,6,23,${a})`; ctx.fillRect(0, 0, W, H); }
+      ctx.save();
+      ctx.translate(W*0.5,H*0.5);
+      ctx.scale(state.zoom,state.zoom);
+      ctx.translate(-worldWidth()*0.5,-worldHeight()*0.5);
+      ctx.fillStyle = 'rgba(226,232,240,0.98)';
+      for (let i=0; i<boids.length; i++){
+        const b = boids[i];
+        const ang = Math.atan2(b.vy, b.vx);
+        const cos = Math.cos(ang), sin = Math.sin(ang);
+        const size = 3.3;
+        ctx.beginPath();
+        ctx.moveTo(b.x + size * cos, b.y + size * sin);
+        ctx.lineTo(b.x - size * 0.9 * cos - size * 0.62 * sin, b.y - size * 0.9 * sin + size * 0.62 * cos);
+        ctx.lineTo(b.x - size * 0.9 * cos + size * 0.62 * sin, b.y - size * 0.9 * sin - size * 0.62 * cos);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    requestAnimationFrame(step);
+  })();
+  </script>
+</body>
+</html>
