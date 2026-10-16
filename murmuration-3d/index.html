@@ -93,9 +93,9 @@
     </nav>
     <div class="fs-settings">
     <section class="controls" aria-label="Animatie-instellingen">
-      <div class="control"><label for="trail">Sporen <output id="trailVal"></output></label><input id="trail" type="range" min="0.02" max="1" step="0.01" value="0.20"></div>
+      <div class="control"><label for="trail">Sporen <output id="trailVal"></output></label><input id="trail" type="range" min="0.02" max="1" step="0.01" value="1"></div>
       <div class="control"><label for="zoom">In-/uitzoomen <output id="zoomVal"></output></label><input id="zoom" type="range" min="0.25" max="3" step="0.05" value="1"></div>
-      <div class="control"><label for="boids">Aantal boids <output id="boidsVal"></output></label><input id="boids" type="range" min="80" max="1200" step="20" value="300"><small id="performanceWarning" class="performance-warning" hidden>FPS laag — verlaag het aantal boids voor een soepelere animatie.</small></div>
+      <div class="control"><label for="boids">Aantal boids <output id="boidsVal"></output></label><input id="boids" type="range" min="80" max="10000" step="20" value="300"><small>CPU-simulatie; 8.000–10.000 hangt af van je apparaat. Zie <a href="PERFORMANCE.md">prestatietips en GPU-stappen</a>.</small><small id="performanceWarning" class="performance-warning" hidden>FPS laag — verlaag het aantal boids voor een soepelere animatie.</small></div>
       <div class="control"><label for="spaceShape">Vorm van de ruimte</label><select id="spaceShape"><option value="2d-circle">2D-cirkel</option><option value="3d-sphere" selected>3D-bol</option><option value="4d-torus">4D-hypertorus</option></select></div>
       <div class="control"><label for="swipeMode">Vegen doet</label><select id="swipeMode"><option value="camera">Camera draaien</option><option value="field">Aanraakveld verplaatsen</option></select></div>
       <div class="control"><label for="cameraYaw">Horizontaal kijken <output id="cameraYawVal"></output></label><input id="cameraYaw" type="range" min="-180" max="180" step="1" value="25"></div>
@@ -155,7 +155,7 @@
     document.addEventListener('fullscreenchange', ()=>{ if (!document.fullscreenElement) document.body.classList.remove('fs'); fit(); });
 
     const state = {
-      trail: 0.20, zoom: 1, n: 300, maxSpeed: 2.0, viewR: 40,
+      trail: 1, zoom: 1, n: 300, maxSpeed: 2.0, viewR: 40,
       sep: 1.0, ali: 0.6, coh: 0.25, soft: 0.0,
       cameraYaw: 25, cameraPitch: 18, cameraW: 35, spaceShape: '3d-sphere', swipeMode: 'camera',
       fStr: 1.4, fFall: 140, fingerMode: 'attract',
@@ -163,6 +163,7 @@
       blend: 0.0, fStrength: 0.9, fieldCStrength: 0.7, fieldDStrength: 0.7,
       autoMorph: false, autoMorphSpeed: 0.15,
     };
+    let fieldColorsDirty=true;
 
     const bindSlider = (id, key, fmt=(v)=>v) => {
       const el = document.getElementById(id);
@@ -191,13 +192,16 @@
     bindSlider('fStrength','fStrength',v=>Number(v).toFixed(2));
     bindSlider('fieldCStrength','fieldCStrength',v=>Number(v).toFixed(2));
     bindSlider('fieldDStrength','fieldDStrength',v=>Number(v).toFixed(2));
+    for(const id of ['blend','fStrength','fieldCStrength','fieldDStrength']){
+      document.getElementById(id).addEventListener('input',()=>fieldColorsDirty=true);
+    }
 
     const fingerMode = document.getElementById('fingerMode'); fingerMode.addEventListener('change', ()=> state.fingerMode = fingerMode.value);
-    const fieldA = document.getElementById('fieldA'); fieldA.addEventListener('change', ()=> state.fieldA = fieldA.value);
-    const fieldB = document.getElementById('fieldB'); fieldB.addEventListener('change', ()=> state.fieldB = fieldB.value);
-    const fieldC = document.getElementById('fieldC'); fieldC.addEventListener('change', ()=> state.fieldC = fieldC.value);
-    const fieldD = document.getElementById('fieldD'); fieldD.addEventListener('change', ()=> state.fieldD = fieldD.value);
-    const autoMorphChk = document.getElementById('autoMorphChk'); autoMorphChk.addEventListener('change', ()=> state.autoMorph = autoMorphChk.checked);
+    const fieldA = document.getElementById('fieldA'); fieldA.addEventListener('change', ()=> { state.fieldA = fieldA.value; fieldColorsDirty=true; });
+    const fieldB = document.getElementById('fieldB'); fieldB.addEventListener('change', ()=> { state.fieldB = fieldB.value; fieldColorsDirty=true; });
+    const fieldC = document.getElementById('fieldC'); fieldC.addEventListener('change', ()=> { state.fieldC = fieldC.value; fieldColorsDirty=true; });
+    const fieldD = document.getElementById('fieldD'); fieldD.addEventListener('change', ()=> { state.fieldD = fieldD.value; fieldColorsDirty=true; });
+    const autoMorphChk = document.getElementById('autoMorphChk'); autoMorphChk.addEventListener('change', ()=> { state.autoMorph = autoMorphChk.checked; fieldColorsDirty=true; });
     const autoMorphSpeed = document.getElementById('autoMorphSpeed'); autoMorphSpeed.addEventListener('input', ()=> state.autoMorphSpeed = parseFloat(autoMorphSpeed.value));
     const swipeMode = document.getElementById('swipeMode');
     swipeMode.addEventListener('change',()=>{
@@ -487,9 +491,10 @@
       boids = new Array(state.n).fill(0).map(()=>{
         const position=samplePosition(),velocity=sampleVelocity();
         confineToSpace(position,velocity);
-        return {x:position[0],y:position[1],z:position[2],w:position[3],vx:velocity[0],vy:velocity[1],vz:velocity[2],vw:velocity[3]};
+        return {x:position[0],y:position[1],z:position[2],w:position[3],vx:velocity[0],vy:velocity[1],vz:velocity[2],vw:velocity[3],fieldColor:4};
       });
       nextBoids = boids.map(b=>({...b}));
+      fieldColorsDirty=true;
     }
 
     function fit(){
@@ -546,39 +551,32 @@
       const w=name==='None'?0:0.35*Math.cos(4*n[3]-0.6*t+2*Math.hypot(n[0],n[1]));
       return [xyz[0],xyz[1],xyz[2],w];
     }
-    function fieldColor(x,y,z,w,t){
+    function fieldEffects(x,y,z,w,t){
       const n=ndc(x,y,z,w),dim=dimensions(),blend=smoothstep(blendT);
-      const contributions=[
-        {force:field4d(state.fieldA,n,t),weight:(1-blend)*state.fStrength,color:[114,194,139]},
-        {force:field4d(state.fieldB,n,t+0.3),weight:blend*state.fStrength,color:[212,154,112]},
-        {force:field4d(state.fieldC,n,t+0.6),weight:state.fieldCStrength,color:[105,185,216]},
-        {force:field4d(state.fieldD,n,t+0.9),weight:state.fieldDStrength,color:[189,145,214]},
+      const fields=[
+        field4d(state.fieldA,n,t),
+        field4d(state.fieldB,n,t+0.3),
+        field4d(state.fieldC,n,t+0.6),
+        field4d(state.fieldD,n,t+0.9),
       ];
-      let strongest=null,strongestStrength=1e-6;
-      for(const contribution of contributions){
-        const strength=Math.hypot(...contribution.force.slice(0,dim))*contribution.weight;
+      const weights=[(1-blend)*state.fStrength,blend*state.fStrength,state.fieldCStrength,state.fieldDStrength];
+      let strongestColor=4,strongestStrength=1e-6;
+      for(let field=0;field<fields.length;field++){
+        let magnitudeSquared=0;
+        for(let axis=0;axis<dim;axis++) magnitudeSquared+=fields[field][axis]*fields[field][axis];
+        const strength=Math.sqrt(magnitudeSquared)*weights[field];
         if(strength>strongestStrength){
-          strongest=contribution;
+          strongestColor=field;
           strongestStrength=strength;
         }
       }
-      if(!strongest) return 'rgba(192,198,195,';
-      const rgb=strongest.color;
-      return `rgba(${rgb.join(',')},`;
-    }
-    function topologyForce(x,y,z,w,t){
-      const n=ndc(x,y,z,w);
-      const fA=field4d(state.fieldA,n,t);
-      const fB=field4d(state.fieldB,n,t+0.3);
-      const fC=field4d(state.fieldC,n,t+0.6);
-      const fD=field4d(state.fieldD,n,t+0.9);
-      const sT = smoothstep(blendT);
-      return [
-        (lerp(fA[0],fB[0],sT)*state.fStrength + fC[0]*state.fieldCStrength + fD[0]*state.fieldDStrength),
-        (lerp(fA[1],fB[1],sT)*state.fStrength + fC[1]*state.fieldCStrength + fD[1]*state.fieldDStrength),
-        (lerp(fA[2],fB[2],sT)*state.fStrength + fC[2]*state.fieldCStrength + fD[2]*state.fieldDStrength),
-        (lerp(fA[3],fB[3],sT)*state.fStrength + fC[3]*state.fieldCStrength + fD[3]*state.fieldDStrength),
+      const force=[
+        (lerp(fields[0][0],fields[1][0],blend)*state.fStrength + fields[2][0]*state.fieldCStrength + fields[3][0]*state.fieldDStrength),
+        (lerp(fields[0][1],fields[1][1],blend)*state.fStrength + fields[2][1]*state.fieldCStrength + fields[3][1]*state.fieldDStrength),
+        (lerp(fields[0][2],fields[1][2],blend)*state.fStrength + fields[2][2]*state.fieldCStrength + fields[3][2]*state.fieldDStrength),
+        (lerp(fields[0][3],fields[1][3],blend)*state.fStrength + fields[2][3]*state.fieldCStrength + fields[3][3]*state.fieldDStrength),
       ];
+      return {force,color:strongestColor};
     }
 
     function step(now){
@@ -601,82 +599,113 @@
         gridDimensionCount=dim;
         gridShape=nextGridShape;
       }
-      const flatCellIndex=coordinates=>{
-        let index=0,multiplier=1;
-        for(let axis=0;axis<dim;axis++){index+=coordinates[axis]*multiplier;multiplier*=gridShape[axis];}
-        return index;
-      };
+      const gridStrideY=gridShape[0]||1;
+      const gridStrideZ=gridStrideY*(gridShape[1]||1);
+      const gridStrideW=gridStrideZ*(gridShape[2]||1);
+      const flatCellIndex=(x,y,z,w)=>x+y*gridStrideY+z*gridStrideZ+w*gridStrideW;
 
       if(!paused){
         spatialGrid.clear();
         for(let i=0;i<boids.length;i++){
-          const b=boids[i],position=[b.x,b.y,b.z,b.w];
-          const cell=position.slice(0,dim).map((value,axis)=>Math.min(gridShape[axis]-1,Math.floor(value/cellSize)));
-          const key=flatCellIndex(cell);
-          if(!spatialGrid.has(key)) spatialGrid.set(key,[]);
-          spatialGrid.get(key).push(i);
+          const b=boids[i];
+          const cellX=Math.min(gridShape[0]-1,Math.floor(b.x/cellSize));
+          const cellY=dim>1?Math.min(gridShape[1]-1,Math.floor(b.y/cellSize)):0;
+          const cellZ=dim>2?Math.min(gridShape[2]-1,Math.floor(b.z/cellSize)):0;
+          const cellW=dim>3?Math.min(gridShape[3]-1,Math.floor(b.w/cellSize)):0;
+          const key=flatCellIndex(cellX,cellY,cellZ,cellW);
+          let members=spatialGrid.get(key);
+          if(!members){members=[];spatialGrid.set(key,members);}
+          members.push(i);
         }
 
         for(let i=0;i<boids.length;i++){
-          const b=boids[i],position=[b.x,b.y,b.z,b.w],velocity=[b.vx,b.vy,b.vz,b.vw];
-          const cell=position.slice(0,dim).map((value,axis)=>Math.min(gridShape[axis]-1,Math.floor(value/cellSize)));
-          const separation=[0,0,0,0],alignment=[0,0,0,0],cohesion=[0,0,0,0];
-          let count=0;
+          const b=boids[i],x=b.x,y=b.y,z=b.z,w=b.w;
+          const cellX=Math.min(gridShape[0]-1,Math.floor(x/cellSize));
+          const cellY=dim>1?Math.min(gridShape[1]-1,Math.floor(y/cellSize)):0;
+          const cellZ=dim>2?Math.min(gridShape[2]-1,Math.floor(z/cellSize)):0;
+          const cellW=dim>3?Math.min(gridShape[3]-1,Math.floor(w/cellSize)):0;
+          let sepX=0,sepY=0,sepZ=0,sepW=0;
+          let aliX=0,aliY=0,aliZ=0,aliW=0;
+          let cohX=0,cohY=0,cohZ=0,cohW=0,count=0;
           for(const offset of neighborOffsets){
-            const neighborCell=cell.map((value,axis)=>value+offset[axis]);
-            if(neighborCell.some((value,axis)=>value<0||value>=gridShape[axis])) continue;
-            const neighbors=spatialGrid.get(flatCellIndex(neighborCell));
+            const neighborX=cellX+offset[0],neighborY=dim>1?cellY+offset[1]:0;
+            const neighborZ=dim>2?cellZ+offset[2]:0,neighborW=dim>3?cellW+offset[3]:0;
+            if(neighborX<0||neighborX>=gridShape[0]||
+              (dim>1&&(neighborY<0||neighborY>=gridShape[1]))||
+              (dim>2&&(neighborZ<0||neighborZ>=gridShape[2]))||
+              (dim>3&&(neighborW<0||neighborW>=gridShape[3]))) continue;
+            const neighbors=spatialGrid.get(flatCellIndex(neighborX,neighborY,neighborZ,neighborW));
             if(!neighbors) continue;
             for(const otherIndex of neighbors){
               if(i===otherIndex) continue;
-              const other=boids[otherIndex],otherPosition=[other.x,other.y,other.z,other.w],otherVelocity=[other.vx,other.vy,other.vz,other.vw];
-              const delta=position.map((value,axis)=>otherPosition[axis]-value);
-              const distanceSquared=delta.slice(0,dim).reduce((sum,value)=>sum+value*value,0);
+              const other=boids[otherIndex],dx=other.x-x,dy=other.y-y;
+              const dz=dim>2?other.z-z:0,dw=dim>3?other.w-w:0;
+              const distanceSquared=dx*dx+dy*dy+dz*dz+dw*dw;
               if(distanceSquared>vr2) continue;
               const inverseDistance=1/(distanceSquared+1e-4);
-              for(let axis=0;axis<dim;axis++){
-                separation[axis]-=delta[axis]*inverseDistance;
-                alignment[axis]+=otherVelocity[axis];
-                cohesion[axis]+=position[axis]+delta[axis];
-              }
+              sepX-=dx*inverseDistance;sepY-=dy*inverseDistance;
+              aliX+=other.vx;aliY+=other.vy;cohX+=other.x;cohY+=other.y;
+              if(dim>2){sepZ-=dz*inverseDistance;aliZ+=other.vz;cohZ+=other.z;}
+              if(dim>3){sepW-=dw*inverseDistance;aliW+=other.vw;cohW+=other.w;}
               count++;
             }
           }
 
-          const acceleration=[0,0,0,0];
+          let accelerationX=0,accelerationY=0,accelerationZ=0,accelerationW=0;
           if(count>0){
-            const sep=norm4(...separation),ali=norm4(...alignment);
-            const centerDelta=cohesion.map((sum,axis)=>sum/count-position[axis]);
-            const coh=norm4(...centerDelta);
-            for(let axis=0;axis<dim;axis++) acceleration[axis]+=state.sep*sep[axis]+state.ali*ali[axis]+state.coh*coh[axis];
+            const sepMagnitude=Math.hypot(sepX,sepY,sepZ,sepW)||1;
+            const aliMagnitude=Math.hypot(aliX,aliY,aliZ,aliW)||1;
+            const centerX=cohX/count-x,centerY=cohY/count-y;
+            const centerZ=dim>2?cohZ/count-z:-z,centerW=dim>3?cohW/count-w:-w;
+            const cohesionMagnitude=Math.hypot(centerX,centerY,centerZ,centerW)||1;
+            accelerationX+=state.sep*sepX/sepMagnitude+state.ali*aliX/aliMagnitude+state.coh*centerX/cohesionMagnitude;
+            accelerationY+=state.sep*sepY/sepMagnitude+state.ali*aliY/aliMagnitude+state.coh*centerY/cohesionMagnitude;
+            if(dim>2) accelerationZ+=state.sep*sepZ/sepMagnitude+state.ali*aliZ/aliMagnitude+state.coh*centerZ/cohesionMagnitude;
+            if(dim>3) accelerationW+=state.sep*sepW/sepMagnitude+state.ali*aliW/aliMagnitude+state.coh*centerW/cohesionMagnitude;
           }
+          const acceleration=[0,0,0,0];
+          acceleration[0]=accelerationX;acceleration[1]=accelerationY;
+          acceleration[2]=accelerationZ;acceleration[3]=accelerationW;
           pointers.forEach(p=>{
-            const pointerPosition=[p.x,p.y,p.z,p.w];
-            const delta=position.map((value,axis)=>pointerPosition[axis]-value);
-            const distance=Math.hypot(...delta.slice(0,dim))+1e-6;
+            const dx=p.x-x,dy=p.y-y,dz=dim>2?p.z-z:0,dw=dim>3?p.w-w:0;
+            const distance=Math.hypot(dx,dy,dz,dw)+1e-6;
             if(distance<state.fFall){
               const fall=1-distance/state.fFall;
               const base=state.fStr*(0.4+0.6*fall)/(1+0.5*distance/state.fFall);
               const sign=state.fingerMode==='attract'?1:-1;
-              for(let axis=0;axis<dim;axis++) acceleration[axis]+=sign*base*delta[axis]/distance;
+              acceleration[0]+=sign*base*dx/distance;
+              acceleration[1]+=sign*base*dy/distance;
+              if(dim>2) acceleration[2]+=sign*base*dz/distance;
+              if(dim>3) acceleration[3]+=sign*base*dw/distance;
             }
           });
-          const fieldForce=topologyForce(...position,time);
-          for(let axis=0;axis<dim;axis++) acceleration[axis]+=fieldForce[axis];
+          const fieldEffect=fieldEffects(x,y,z,w,time);
+          for(let axis=0;axis<dim;axis++) acceleration[axis]+=fieldEffect.force[axis];
 
-          const nextVelocity=velocity.map((value,axis)=>value+acceleration[axis]*dt*3);
-          const speed=Math.hypot(...nextVelocity.slice(0,dim));
+          const nextVelocity=[
+            b.vx+acceleration[0]*dt*3,b.vy+acceleration[1]*dt*3,
+            b.vz+acceleration[2]*dt*3,b.vw+acceleration[3]*dt*3,
+          ];
+          const speed=Math.hypot(nextVelocity[0],nextVelocity[1],dim>2?nextVelocity[2]:0,dim>3?nextVelocity[3]:0);
           if(speed>ms) for(let axis=0;axis<dim;axis++) nextVelocity[axis]*=ms/speed;
-          const nextPosition=position.map((value,axis)=>value+nextVelocity[axis]*dt*60);
+          const nextPosition=[
+            x+nextVelocity[0]*dt*60,y+nextVelocity[1]*dt*60,
+            z+nextVelocity[2]*dt*60,w+nextVelocity[3]*dt*60,
+          ];
           confineToSpace(nextPosition,nextVelocity);
           Object.assign(nextBoids[i],{
             x:nextPosition[0],y:nextPosition[1],z:nextPosition[2],w:nextPosition[3],
             vx:nextVelocity[0],vy:nextVelocity[1],vz:nextVelocity[2],vw:nextVelocity[3],
+            fieldColor:fieldEffect.color,
           });
         }
         const previousBoids = boids;
         boids = nextBoids;
         nextBoids = previousBoids;
+        fieldColorsDirty=false;
+      }else if(fieldColorsDirty||state.autoMorph){
+        for(const boid of boids) boid.fieldColor=fieldEffects(boid.x,boid.y,boid.z,boid.w,time).color;
+        fieldColorsDirty=false;
       }
 
       draw();
@@ -684,8 +713,8 @@
       requestAnimationFrame(step);
     }
 
-    function projectPoint(x,y,z,w=worldFourth()*0.5){
-      const view=camera(),cosW=dimensions()===4?view.cosW:1,sinW=dimensions()===4?view.sinW:0;
+    function projectPoint(x,y,z,w,view){
+      const cosW=dimensions()===4?view.cosW:1,sinW=dimensions()===4?view.sinW:0;
       const {cosYaw,sinYaw,cosPitch,sinPitch}=view;
       const dx=x-worldWidth()*0.5,dy=y-worldHeight()*0.5,dz=z-worldDepth()*0.5,dw=w-worldFourth()*0.5;
       const rotatedZ=cosW*dz-sinW*dw,rotatedW=sinW*dz+cosW*dw;
@@ -702,24 +731,33 @@
       const scale3=focal/Math.max(1,divisor3);
       return {x:W*0.5+cameraX*scale3,y:H*0.5-cameraY*scale3,scale:scale3*scale4,depth:depth+rotatedW,visible:divisor3>1&&divisor4>1};
     }
+    const projectedGroups=[[],[],[],[],[]];
+    const boidFillColors=[
+      'rgba(114,194,139,0.82)',
+      'rgba(212,154,112,0.82)',
+      'rgba(105,185,216,0.82)',
+      'rgba(189,145,214,0.82)',
+      'rgba(192,198,195,0.82)',
+    ];
     function draw(){
       const a = clamp(state.trail, 0, 1);
       if (a >= 0.999) { ctx.clearRect(0, 0, W, H); }
       else { ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.fillRect(0, 0, W, H); }
-      const projected=boids.map(b=>({boid:b,point:projectPoint(b.x,b.y,b.z,b.w)}));
-      projected.sort((a,b)=>b.point.depth-a.point.depth);
-      for(const {boid:b,point:p} of projected){
-        if(!p.visible) continue;
-        const ahead=projectPoint(b.x+b.vx*3,b.y+b.vy*3,b.z+b.vz*3,b.w+b.vw*3);
-        const ang=Math.atan2(p.y-ahead.y,ahead.x-p.x);
-        const cos=Math.cos(ang),sin=Math.sin(ang);
-        const size=clamp(5.5*p.scale,1.2,9);
-        ctx.fillStyle=`${fieldColor(b.x,b.y,b.z,b.w,performance.now()/1000)}${clamp(0.52+p.scale*0.35,0.56,0.82)})`;
+      for(const group of projectedGroups) group.length=0;
+      const view=camera();
+      for(const boid of boids){
+        const point=projectPoint(boid.x,boid.y,boid.z,boid.w,view);
+        if(point.visible) projectedGroups[boid.fieldColor??4].push(point);
+      }
+      for(let color=0;color<projectedGroups.length;color++){
+        const group=projectedGroups[color];
+        if(group.length===0) continue;
+        ctx.fillStyle=boidFillColors[color];
         ctx.beginPath();
-        ctx.moveTo(p.x+size*cos,p.y-size*sin);
-        ctx.lineTo(p.x-size*0.9*cos+size*0.62*sin,p.y+size*0.9*sin+size*0.62*cos);
-        ctx.lineTo(p.x-size*0.9*cos-size*0.62*sin,p.y+size*0.9*sin-size*0.62*cos);
-        ctx.closePath();
+        for(const point of group){
+          const size=clamp(7*point.scale,1.3,5.5);
+          ctx.rect(point.x-size*0.5,point.y-size*0.5,size,size);
+        }
         ctx.fill();
       }
     }
