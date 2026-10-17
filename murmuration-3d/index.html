@@ -86,7 +86,7 @@
       <canvas id="cv"></canvas>
     </section>
     <nav class="toolbar" aria-label="Animatiebediening">
-      <button id="pauseBtn" type="button">Pauze</button>
+      <button id="pauseBtn" type="button">Play</button>
       <button id="pulseBtn" type="button">Impuls</button>
       <button id="resetBtn" type="button">Herstart</button>
       <button id="fsBtn" type="button">Volledig scherm</button>
@@ -101,6 +101,7 @@
       <div class="control"><label for="cameraYaw">Horizontaal kijken <output id="cameraYawVal"></output></label><input id="cameraYaw" type="range" min="-180" max="180" step="1" value="25"></div>
       <div class="control"><label for="cameraPitch">Verticaal kijken <output id="cameraPitchVal"></output></label><input id="cameraPitch" type="range" min="-70" max="70" step="1" value="18"></div>
       <div class="control"><label for="cameraW">4D-kijkhoek <output id="cameraWVal"></output></label><input id="cameraW" type="range" min="-180" max="180" step="1" value="35"></div>
+      <div class="control"><span class="label">Camera-projectie</span><button id="cameraBtn" type="button">Camera starten</button><small id="cameraStatus" role="status">Projecteer het livebeeld op de stippen van de 3D-bol.</small></div>
       <div class="control"><label for="maxSpeed">Maximumsnelheid <output id="maxSpeedVal"></output></label><input id="maxSpeed" type="range" min="0.5" max="5" step="0.1" value="2"></div>
       <div class="control"><label for="viewR">Kijkafstand <output id="viewRVal"></output></label><input id="viewR" type="range" min="10" max="100" step="1" value="40"></div>
       <div class="control"><label for="sep">Afstand houden <output id="sepVal"></output></label><input id="sep" type="range" min="0" max="3" step="0.05" value="1"></div>
@@ -139,7 +140,7 @@
     const cv = document.getElementById('cv');
     const ctx = cv.getContext('2d');
     let W = 900, H = 600;
-    let paused = false;
+    let paused = true;
     const hudStatus = document.getElementById('hudStatus');
     const hudFps = document.getElementById('hudFps');
 
@@ -164,6 +165,58 @@
       autoMorph: false, autoMorphSpeed: 0.15,
     };
     let fieldColorsDirty=true;
+    let cameraStream = null;
+    const cameraVideo = document.createElement('video');
+    cameraVideo.muted = true;
+    cameraVideo.playsInline = true;
+    const cameraTexture = document.createElement('canvas');
+    cameraTexture.width = 256;
+    cameraTexture.height = 128;
+    const cameraTextureContext = cameraTexture.getContext('2d', {willReadFrequently: true});
+    const cameraButton = document.getElementById('cameraBtn');
+    const cameraStatus = document.getElementById('cameraStatus');
+
+    function stopCamera(){
+      if(cameraStream){
+        for(const track of cameraStream.getTracks()) track.stop();
+        cameraStream = null;
+      }
+      cameraVideo.srcObject = null;
+      cameraButton.textContent = 'Camera starten';
+      cameraStatus.textContent = 'Camera uit.';
+    }
+    cameraButton.addEventListener('click', async ()=>{
+      if(cameraStream){
+        stopCamera();
+        return;
+      }
+      if(state.spaceShape !== '3d-sphere'){
+        cameraStatus.textContent = 'Kies eerst 3D-bol bij Vorm van de ruimte.';
+        return;
+      }
+      if(!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function'){
+        cameraStatus.textContent = 'Camera niet beschikbaar. Open de site via HTTPS in een browser met cameratoegang.';
+        setStatus('camera niet beschikbaar', false);
+        return;
+      }
+      cameraStatus.textContent = 'Bezig met verbinden met de camera…';
+      try{
+        cameraStream = await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+        cameraVideo.srcObject = cameraStream;
+        await cameraVideo.play();
+        cameraButton.textContent = 'Camera stoppen';
+        cameraStatus.textContent = 'Livebeeld wordt op de bol geprojecteerd.';
+      }catch(error){
+        if(cameraStream){
+          for(const track of cameraStream.getTracks()) track.stop();
+          cameraStream = null;
+        }
+        cameraVideo.srcObject = null;
+        const detail=error instanceof Error?error.message:String(error);
+        cameraStatus.textContent = `Camera kon niet starten: ${detail}`;
+        setStatus('camera niet beschikbaar', false);
+      }
+    });
 
     const bindSlider = (id, key, fmt=(v)=>v) => {
       const el = document.getElementById(id);
@@ -216,11 +269,15 @@
       state.spaceShape=spaceShape.value;
       spatialGrid.clear();
       reset();
+      if(cameraStream&&state.spaceShape!=='3d-sphere'){
+        stopCamera();
+        cameraStatus.textContent='Camera gestopt: projectie werkt alleen op de 3D-bol.';
+      }
     });
 
     document.getElementById('resetBtn').addEventListener('click', reset);
     document.getElementById('pulseBtn').addEventListener('click', ()=>{ const id=99999; pointers.set(id,{id,x:worldWidth()*0.5,y:worldHeight()*0.5,z:worldDepth()*0.5,w:worldFourth()*0.5}); setTimeout(()=>pointers.delete(id),600); });
-    document.getElementById('pauseBtn').addEventListener('click', (e)=>{ paused = !paused; e.target.textContent = paused ? 'Verder' : 'Pauze'; setStatus(paused ? 'gepauzeerd' : 'actief', true); });
+    document.getElementById('pauseBtn').addEventListener('click', (e)=>{ paused = !paused; e.target.textContent = paused ? 'Play' : 'Pauze'; setStatus(paused ? 'gepauzeerd' : 'actief', true); });
 
     const clamp = (v,a,b)=> Math.max(a, Math.min(b, v));
     const lerp = (a,b,t)=> a + (b-a)*t;
@@ -293,6 +350,11 @@
       const {major,minor}=torusRadii(),crossAngle=Math.random()*Math.PI*2,angleA=Math.random()*Math.PI*2,angleB=Math.random()*Math.PI*2;
       const tube=minor*Math.sqrt(Math.random()),radiusA=major+tube*Math.cos(crossAngle),radiusB=major+tube*Math.sin(crossAngle);
       return [center[0]+radiusA*Math.cos(angleA),center[1]+radiusA*Math.sin(angleA),center[2]+radiusB*Math.cos(angleB),center[3]+radiusB*Math.sin(angleB)];
+    }
+    function sampleSphereSurface(){
+      const center=activeCenter(),vertical=Math.random()*2-1,angle=Math.random()*Math.PI*2;
+      const horizontal=Math.sqrt(1-vertical*vertical),radius=sphereRadius();
+      return [center[0]+radius*horizontal*Math.cos(angle),center[1]+radius*horizontal*Math.sin(angle),center[2]+radius*vertical,worldFourth()*0.5];
     }
     function sampleVelocity(){
       const dim=dimensions(),velocity=norm4(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1,Math.random()*2-1);
@@ -489,7 +551,7 @@
     let spatialGrid = new Map(), gridShape = [], neighborOffsets = [], gridDimensionCount = 0;
     function reset(){
       boids = new Array(state.n).fill(0).map(()=>{
-        const position=samplePosition(),velocity=sampleVelocity();
+        const position=state.spaceShape==='3d-sphere'?sampleSphereSurface():samplePosition(),velocity=sampleVelocity();
         confineToSpace(position,velocity);
         return {x:position[0],y:position[1],z:position[2],w:position[3],vx:velocity[0],vy:velocity[1],vz:velocity[2],vw:velocity[3],fieldColor:4};
       });
@@ -745,10 +807,33 @@
       else { ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.fillRect(0, 0, W, H); }
       for(const group of projectedGroups) group.length=0;
       const view=camera();
+      const hasCameraTexture=cameraStream&&state.spaceShape==='3d-sphere'&&cameraVideo.readyState>=2;
+      let cameraPixels=null;
+      if(hasCameraTexture){
+        cameraTextureContext.save();
+        cameraTextureContext.translate(cameraTexture.width,0);
+        cameraTextureContext.scale(-1,1);
+        cameraTextureContext.drawImage(cameraVideo,0,0,cameraTexture.width,cameraTexture.height);
+        cameraTextureContext.restore();
+        cameraPixels=cameraTextureContext.getImageData(0,0,cameraTexture.width,cameraTexture.height).data;
+      }
       for(const boid of boids){
         const point=projectPoint(boid.x,boid.y,boid.z,boid.w,view);
-        if(point.visible) projectedGroups[boid.fieldColor??4].push(point);
+        if(!point.visible) continue;
+        if(cameraPixels){
+          const dx=boid.x-worldWidth()*0.5,dy=boid.y-worldHeight()*0.5,dz=boid.z-worldDepth()*0.5;
+          const radius=Math.hypot(dx,dy,dz)||1;
+          const u=(Math.atan2(dx,dz)/(2*Math.PI)+1)%1;
+          const v=0.5-Math.asin(clamp(dy/radius,-1,1))/Math.PI;
+          const pixel=(Math.min(cameraTexture.height-1,Math.floor(v*cameraTexture.height))*cameraTexture.width+Math.floor(u*cameraTexture.width))*4;
+          const size=clamp(7*point.scale*Math.sqrt(300/state.n),0.45,5.5);
+          ctx.fillStyle=`rgb(${cameraPixels[pixel]},${cameraPixels[pixel+1]},${cameraPixels[pixel+2]})`;
+          ctx.fillRect(point.x-size*0.5,point.y-size*0.5,size,size);
+        }else{
+          projectedGroups[boid.fieldColor??4].push(point);
+        }
       }
+      if(cameraPixels) return;
       for(let color=0;color<projectedGroups.length;color++){
         const group=projectedGroups[color];
         if(group.length===0) continue;
